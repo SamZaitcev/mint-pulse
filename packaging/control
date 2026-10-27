@@ -1,0 +1,13 @@
+Source: mint-pulse
+Section: utils
+Priority: optional
+Maintainer: Sam Zaitcev <22082957+SamZaitcev@users.noreply.github.com>
+Homepage: https://github.com/SamZaitcev/mint-pulse
+
+Package: mint-pulse
+Architecture: any
+Depends: ${shlibs:Depends}, fonts-dejavu-core
+Description: Lightweight system graphs for the Cinnamon tray
+ Displays CPU, RAM, swap and filesystem occupancy in a horizontal XApp tray.
+ Graphs update every two seconds and support dark, light and high-contrast themes.
+ A Cinnamon desktop with the XApp Status Applet is required.

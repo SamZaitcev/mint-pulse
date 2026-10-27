@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mint Pulse
+Exec=/usr/bin/mint-pulse
+Icon=utilities-system-monitor
+Terminal=false
+StartupNotify=false
+Categories=System;Monitor;
+OnlyShowIn=X-Cinnamon;

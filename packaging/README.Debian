@@ -1,0 +1,21 @@
+Mint Pulse for Cinnamon
+
+Start Mint Pulse from the application menu or run /usr/bin/mint-pulse.
+Enable the XApp Status Applet on a horizontal top or bottom Cinnamon panel.
+The package does not enable autostart for every user. To start it at login,
+add /usr/bin/mint-pulse to Cinnamon Startup Applications.
+
+Colors can be selected with --theme auto, dark, light or high-contrast.
+Use --thresholds 90,75,50,85 to set CPU, RAM, swap and filesystem warning levels.
+Use --path / to monitor the root filesystem instead of the home filesystem.
+Run /usr/bin/mint-pulse --help for all options.
+
+If a manually installed version is already running, exit that process before
+starting the packaged version. Review existing Startup Applications entries:
+an absolute path in ~/.local/bin can continue to launch an older binary.
+Use /usr/bin/mint-pulse for the packaged version. The package never edits home
+directories or deletes an earlier manual installation.
+
+The SSD label represents filesystem occupancy, not disk I/O or drive health.
+Missing data and disabled swap appear as an em dash. Use a local filesystem.
+Theme auto-detection uses the theme name; custom names may need an override.

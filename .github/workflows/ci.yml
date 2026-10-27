@@ -1,0 +1,131 @@
+name: Rust and Debian package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.99.1
+  RUST_MSRV: 1.75.0
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source (v6.0.1)
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - name: Install Rust checks
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Check Rust formatting
+        run: cargo +"$RUST_TOOLCHAIN" fmt --check
+      - name: Check Clippy warnings
+        run: cargo +"$RUST_TOOLCHAIN" clippy --offline --locked -- -D warnings
+      - name: Install minimum supported Rust
+        run: rustup toolchain install "$RUST_MSRV" --profile minimal
+      - name: Check minimum supported Rust
+        run: cargo +"$RUST_MSRV" check --offline --locked
+      - name: Check packaging syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils
+          bash -n packaging/build-deb.sh
+          shellcheck --shell=bash packaging/build-deb.sh
+          desktop-file-validate packaging/mint-pulse.desktop
+
+  package:
+    needs: quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source (v6.0.1)
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential dpkg-dev libxapp1 libgtk-3-0 libcairo2 fonts-dejavu-core
+      - name: Install release Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+      - name: Build release binary
+        run: cargo +"$RUST_TOOLCHAIN" build --release --offline --locked
+      - name: Build Debian package
+        run: bash packaging/build-deb.sh
+      - name: Upload Debian package (v7.0.2)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mint-pulse-deb-amd64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:22.04, ubuntu:24.04, debian:12-slim, debian:13-slim]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Download Debian package (v8.0.2)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: mint-pulse-deb-amd64
+          path: dist/
+      - name: Install and verify the package
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates desktop-file-utils python3 ./dist/*.deb
+          (cd dist && sha256sum --check SHA256SUMS)
+          desktop-file-validate /usr/share/applications/mint-pulse.desktop
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import struct
+          import subprocess
+          import tempfile
+
+          print(subprocess.check_output(['mint-pulse', '--version'], text=True).strip())
+
+          with tempfile.TemporaryDirectory() as directory:
+              for theme in ('dark', 'light', 'high-contrast'):
+                  for height in (16, 20, 24, 32, 48, 96):
+                      output = Path(directory) / theme / str(height)
+                      subprocess.run(['mint-pulse', '--demo', str(output), '--theme', theme, '--height', str(height)], check=True)
+                      images = list(output.glob('*.png'))
+                      assert len(images) == 11, images
+
+                      for image in images:
+                          data = image.read_bytes()
+                          assert data[:8] == b'\x89PNG\r\n\x1a\n', image
+                          assert struct.unpack('>II', data[16:24]) == (round(268 * height / 24), height), image
+
+          report = json.loads(subprocess.check_output(['mint-pulse', '--bench', '--ticks', '3', '--theme', 'dark', '--path', '/'], text=True))
+          assert report['updates'] == 3 and report['errors'] == 0, report
+          assert 1900 < report['interval_ms']['min'] <= report['interval_ms']['max'] < 4000, report
+          assert not Path(report['frame_dir']).exists(), report
+          print(json.dumps(report))
+          PY
+          apt-get remove -y mint-pulse
+          test ! -e /usr/bin/mint-pulse
