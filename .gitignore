@@ -3,6 +3,7 @@
 /.local-tests/
 /docs/
 *.md
+!/README.md
 *.log
 *.deb
 *.png
