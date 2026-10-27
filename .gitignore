@@ -1,0 +1,7 @@
+/target/
+/.local-tests/
+/docs/
+*.md
+*.log
+*.deb
+*.png
