@@ -122,9 +122,25 @@ Use `Ctrl+C` if you started it in a terminal, or end its process in System Monit
 **SSD is a filesystem occupancy label.** By default it follows your home directory's filesystem;
 use `--path /` for the root filesystem. It does not identify drive hardware or report disk I/O, temperature or health.
 
-CPU needs two samples, so its first reading is a dash. The history fills over approximately 80 seconds.
-Temporary read failures also appear as gaps or dashes and can recover on later updates.
+CPU needs two samples, so its first graph reading is a dash. The history fills over approximately 80 seconds.
+Temporary read failures also appear as gaps or dashes in the graphs and can recover on later updates.
 Warning thresholds are visual occupancy/load hints; RAM pressure and swap activity need additional context.
+
+Hover over the indicator for an English tooltip showing CPU load, used/total RAM and swap in GiB,
+and used/total filesystem space plus available space. Unavailable readings say `no data`;
+disabled swap says `SWAP: disabled`. The tooltip also explains the fixed update interval,
+approximate history duration and configured red-peak thresholds. For example:
+
+```text
+CPU: 25.0%
+RAM: 4.0 / 16.0 GiB
+SWAP: disabled
+SSD: used 80.0 / 128.0 GiB; available 40.0 GiB
+Updates every 2 s · approximately 80 s of history
+Red peaks: CPU >90%, RAM >75%, SWAP >50%, SSD >85%
+```
+
+The threshold line describes when graph peaks turn red; it is not a separate notification system.
 
 ## Compatibility
 
@@ -140,7 +156,7 @@ Container checks validate packaging and libraries; native panel behavior is cove
 The wide layout requires a **horizontal Cinnamon panel with the XApp Status Applet**.
 Vertical panels, legacy square tray implementations, other desktops, other Cinnamon releases and Wayland
 are outside the verified desktop configuration. Other CPU architectures are not covered by the prebuilt CI packages.
-Tooltips currently contain Russian text; graph labels and command-line help are in English.
+Tooltips, graph labels and command-line help are in English. No additional Cargo dependencies are required.
 
 Monitor local filesystems. A query to an unavailable or unhealthy network mount can block while the filesystem responds.
 
@@ -176,8 +192,13 @@ Run the formatting and lint checks before submitting a change:
 
 ```sh
 cargo fmt --check
-cargo clippy --offline --locked -- -D warnings
+cargo clippy --offline --locked --all-targets -- -D warnings
+cargo test --offline --locked
 ```
+
+The tooltip unit tests cover normal and unavailable readings, disabled and unused swap, full filesystems,
+and default and custom warning thresholds. They use the standard Rust test harness and need no display;
+the native runtime libraries must still be installed for linking.
 
 Generate sample charts and check sampling without a graphical session:
 
@@ -192,8 +213,8 @@ Keep changes focused, preserve the small polling workload, and use descriptive n
 Use [GitHub Issues](https://github.com/SamZaitcev/mint-pulse/issues) for reproducible problems and feature requests.
 
 The [GitHub Actions workflow](.github/workflows/ci.yml) runs on pushes and pull requests to `main`, and can be
-started manually. It checks formatting, Clippy, minimum Rust compatibility and packaging syntax, then builds the DEB
-and verifies it on the four-system matrix above. Actions are pinned by commit SHA and use read-only repository permissions.
+started manually. It checks formatting, Clippy, tooltip unit tests, minimum Rust compatibility and packaging syntax,
+then builds the DEB and verifies it on the four-system matrix above. Actions are pinned by commit SHA and use read-only repository permissions.
 
 ## Troubleshooting
 

@@ -629,6 +629,43 @@ impl Drop for Frames {
     }
 }
 
+fn tooltip(cpu: Option<f64>, memory: Option<&Memory>, storage: Option<&Disk>, thresholds: &[f64; 4]) -> String {
+    let gib = |v| v as f64 / 1073741824.0;
+    let mut tooltip = format!(
+        "CPU: {}\n",
+        cpu.map_or_else(|| "no data".into(), |v| format!("{:.1}%", v))
+    );
+    tooltip += &memory.map_or_else(
+        || "RAM/SWAP: no data\n".into(),
+        |m| {
+            format!(
+                "RAM: {:.1} / {:.1} GiB\nSWAP: {}\n",
+                gib(m.used),
+                gib(m.total),
+                if m.swap_total == 0 {
+                    "disabled".into()
+                } else {
+                    format!("{:.1} / {:.1} GiB", gib(m.swap_used), gib(m.swap_total))
+                }
+            )
+        },
+    );
+    tooltip += &storage.map_or_else(
+        || "SSD: no data".into(),
+        |d| {
+            format!(
+                "SSD: used {:.1} / {:.1} GiB; available {:.1} GiB",
+                gib(d.used),
+                gib(d.size),
+                gib(d.free)
+            )
+        },
+    );
+    tooltip += &format!("\nUpdates every 2 s · approximately 80 s of history\nRed peaks: CPU >{:.0}%, RAM >{:.0}%, SWAP >{:.0}%, SSD >{:.0}%",
+        thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
+    tooltip
+}
+
 struct State {
     icon: Ptr,
     main_loop: Ptr,
@@ -703,39 +740,7 @@ impl State {
 
         if !self.icon.is_null() {
             let p = path.to_str().ok_or("Invalid runtime path")?;
-            let gib = |v| v as f64 / 1073741824.0;
-            let mut tooltip = format!(
-                "CPU: {}\n",
-                values[0].map_or_else(|| "—".into(), |v| format!("{:.1}%", v))
-            );
-            tooltip += &memory.map_or_else(
-                || "RAM/SWAP: нет данных\n".into(),
-                |m| {
-                    format!(
-                        "RAM: {:.1} / {:.1} GiB\nSWAP: {}\n",
-                        gib(m.used),
-                        gib(m.total),
-                        if m.swap_total == 0 {
-                            "отключён".into()
-                        } else {
-                            format!("{:.1} / {:.1} GiB", gib(m.swap_used), gib(m.swap_total))
-                        }
-                    )
-                },
-            );
-            tooltip += &storage.map_or_else(
-                || "SSD: нет данных".into(),
-                |d| {
-                    format!(
-                        "SSD: занято {:.1} / {:.1} GiB; доступно {:.1} GiB",
-                        gib(d.used),
-                        gib(d.size),
-                        gib(d.free)
-                    )
-                },
-            );
-            tooltip += &format!("\nОбновление 2 с · история около 80 с\nКрасные вершины: CPU >{:.0}%, RAM >{:.0}%, SWAP >{:.0}%, SSD >{:.0}%",
-                self.thresholds[0], self.thresholds[1], self.thresholds[2], self.thresholds[3]);
+            let tooltip = tooltip(values[0], memory.as_ref(), storage.as_ref(), &self.thresholds);
             unsafe {
                 xapp_status_icon_set_icon_name(self.icon, cs(p).as_ptr());
                 xapp_status_icon_set_tooltip_text(self.icon, cs(&tooltip).as_ptr());
@@ -1012,5 +1017,111 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("mint-pulse: {}", error);
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GIB: u64 = 1 << 30;
+    const DEFAULT_FOOTER: &str =
+        "\nUpdates every 2 s · approximately 80 s of history\nRed peaks: CPU >90%, RAM >75%, SWAP >50%, SSD >85%";
+
+    fn memory(swap_used: u64, swap_total: u64) -> Memory {
+        Memory {
+            ram: Some(25.0),
+            swap: pct(swap_used, swap_total),
+            total: 16 * GIB,
+            used: 4 * GIB,
+            swap_total,
+            swap_used,
+        }
+    }
+
+    fn storage() -> Disk {
+        Disk {
+            used: 80 * GIB,
+            free: 40 * GIB,
+            size: 128 * GIB,
+        }
+    }
+
+    #[test]
+    fn tooltip_normal_readings() {
+        assert_eq!(
+            tooltip(Some(25.0), Some(&memory(GIB / 2, 2 * GIB)), Some(&storage()), &DEFAULT_THRESHOLDS),
+            format!("CPU: 25.0%\nRAM: 4.0 / 16.0 GiB\nSWAP: 0.5 / 2.0 GiB\nSSD: used 80.0 / 128.0 GiB; available 40.0 GiB{}", DEFAULT_FOOTER)
+        );
+    }
+
+    #[test]
+    fn tooltip_all_readings_unavailable() {
+        assert_eq!(
+            tooltip(None, None, None, &DEFAULT_THRESHOLDS),
+            format!("CPU: no data\nRAM/SWAP: no data\nSSD: no data{}", DEFAULT_FOOTER)
+        );
+    }
+
+    #[test]
+    fn tooltip_disabled_swap_and_initial_cpu() {
+        assert_eq!(
+            tooltip(None, Some(&memory(0, 0)), Some(&storage()), &DEFAULT_THRESHOLDS),
+            format!(
+                "CPU: no data\nRAM: 4.0 / 16.0 GiB\nSWAP: disabled\nSSD: used 80.0 / 128.0 GiB; available 40.0 GiB{}",
+                DEFAULT_FOOTER
+            )
+        );
+    }
+
+    #[test]
+    fn tooltip_enabled_but_unused_swap() {
+        assert_eq!(
+            tooltip(Some(0.0), Some(&memory(0, 2 * GIB)), None, &DEFAULT_THRESHOLDS),
+            format!(
+                "CPU: 0.0%\nRAM: 4.0 / 16.0 GiB\nSWAP: 0.0 / 2.0 GiB\nSSD: no data{}",
+                DEFAULT_FOOTER
+            )
+        );
+    }
+
+    #[test]
+    fn tooltip_missing_memory_preserves_other_readings() {
+        assert_eq!(
+            tooltip(Some(12.34), None, Some(&storage()), &DEFAULT_THRESHOLDS),
+            format!(
+                "CPU: 12.3%\nRAM/SWAP: no data\nSSD: used 80.0 / 128.0 GiB; available 40.0 GiB{}",
+                DEFAULT_FOOTER
+            )
+        );
+    }
+
+    #[test]
+    fn tooltip_full_resources_and_custom_thresholds() {
+        let memory = Memory {
+            ram: Some(100.0),
+            swap: Some(100.0),
+            total: 16 * GIB,
+            used: 16 * GIB,
+            swap_total: 2 * GIB,
+            swap_used: 2 * GIB,
+        };
+        let disk = Disk {
+            used: 128 * GIB,
+            free: 0,
+            size: 128 * GIB,
+        };
+        assert_eq!(
+            tooltip(Some(100.0), Some(&memory), Some(&disk), &[80.0, 70.0, 40.0, 95.0]),
+            "CPU: 100.0%\nRAM: 16.0 / 16.0 GiB\nSWAP: 2.0 / 2.0 GiB\nSSD: used 128.0 / 128.0 GiB; available 0.0 GiB\nUpdates every 2 s · approximately 80 s of history\nRed peaks: CPU >80%, RAM >70%, SWAP >40%, SSD >95%"
+        );
+    }
+
+    #[test]
+    fn tooltip_threshold_boundaries_keep_existing_rounding() {
+        assert_eq!(
+            tooltip(None, None, None, &parse_thresholds("1,25.4,50.6,99").unwrap()),
+            "CPU: no data\nRAM/SWAP: no data\nSSD: no data\nUpdates every 2 s · approximately 80 s of history\nRed peaks: CPU >1%, RAM >25%, SWAP >51%, SSD >99%"
+        );
     }
 }
