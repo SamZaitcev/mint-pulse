@@ -33,11 +33,17 @@ jobs:
       - name: Check Rust formatting
         run: cargo +"$RUST_TOOLCHAIN" fmt --check
       - name: Check Clippy warnings
-        run: cargo +"$RUST_TOOLCHAIN" clippy --offline --locked -- -D warnings
+        run: cargo +"$RUST_TOOLCHAIN" clippy --offline --locked --all-targets -- -D warnings
+      - name: Install test runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxapp1 libgtk-3-0t64 libcairo2
+      - name: Test tooltip messages
+        run: cargo +"$RUST_TOOLCHAIN" test --offline --locked
       - name: Install minimum supported Rust
         run: rustup toolchain install "$RUST_MSRV" --profile minimal
-      - name: Check minimum supported Rust
-        run: cargo +"$RUST_MSRV" check --offline --locked
+      - name: Test minimum supported Rust
+        run: cargo +"$RUST_MSRV" test --offline --locked
       - name: Check packaging syntax
         run: |
           sudo apt-get update
